@@ -1,0 +1,20 @@
+{
+  "httpMethod": "GET",
+  "path": "/documents/test-doc-id/status",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": null,
+  "queryStringParameters": null,
+  "pathParameters": {
+    "document_id": "test-doc-id"
+  },
+  "stageVariables": null,
+  "requestContext": {
+    "requestId": "test-request-id",
+    "stage": "dev",
+    "httpMethod": "GET",
+    "path": "/documents/test-doc-id/status"
+  },
+  "isBase64Encoded": false
+}

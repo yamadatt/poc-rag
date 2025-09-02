@@ -1,0 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@import "tailwindcss";
+
+@layer base {
+  @reference {
+    .font-sans { font-family: theme(fontFamily.sans); }
+    .text-gray-900 { color: theme(colors.gray.900); }
+    .bg-gray-50 { background-color: theme(colors.gray.50); }
+    .text-3xl { font-size: theme(fontSize.3xl); }
+    .font-bold { font-weight: theme(fontWeight.bold); }
+    .text-2xl { font-size: theme(fontSize.2xl); }
+    .font-semibold { font-weight: theme(fontWeight.semibold); }
+    .text-xl { font-size: theme(fontSize.xl); }
+    .font-mono { font-family: theme(fontFamily.mono); }
+    .text-sm { font-size: theme(fontSize.sm); }
+  }
+  
+  body {
+    @apply font-sans text-gray-900 bg-gray-50;
+  }
+  
+  h1 {
+    @apply text-3xl font-bold;
+  }
+  
+  h2 {
+    @apply text-2xl font-semibold;
+  }
+  
+  h3 {
+    @apply text-xl font-semibold;
+  }
+  
+  code {
+    @apply font-mono text-sm;
+  }
+}

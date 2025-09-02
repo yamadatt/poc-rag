@@ -1,0 +1,591 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: AWS Serverless RAG System
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    AllowedValues: [dev, staging, prod]
+    Description: Environment name
+
+Globals:
+  Function:
+    Runtime: provided.al2023
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        ENVIRONMENT: !Ref Environment
+        S3_BUCKET_NAME: !Ref DocumentBucket
+        DYNAMODB_TABLE_NAME: !Ref DocumentTable
+        OPENSEARCH_ENDPOINT: !GetAtt VectorSearchCluster.DomainEndpoint
+        BEDROCK_REGION: !Ref AWS::Region
+
+Resources:
+  # API Gateway
+  RagApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: !Ref Environment
+      Cors:
+        AllowMethods: "'*'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+        AllowCredentials: false
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: RAG API
+          version: 1.0.0
+        paths:
+          /documents:
+            get:
+              summary: Get all documents
+              produces:
+                - application/json
+              responses:
+                '200':
+                  description: Success
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DashboardFunction.Arn}/invocations'
+          /documents/upload:
+            post:
+              summary: Upload document
+              consumes:
+                - multipart/form-data
+              produces:
+                - application/json
+              responses:
+                '200':
+                  description: Success
+                '400':
+                  description: Bad Request
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentUploadFunction.Arn}/invocations'
+          /process:
+            post:
+              summary: Process document
+              consumes:
+                - application/json
+              produces:
+                - application/json
+              responses:
+                '200':
+                  description: Success
+                '400':
+                  description: Bad Request
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessingFunction.Arn}/invocations'
+          /query:
+            post:
+              summary: Query documents
+              consumes:
+                - application/json
+              produces:
+                - application/json
+              responses:
+                '200':
+                  description: Success
+                '400':
+                  description: Bad Request
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${QueryFunction.Arn}/invocations'
+          /documents/{document_id}:
+            delete:
+              summary: Delete document
+              produces:
+                - application/json
+              parameters:
+                - name: document_id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              responses:
+                '200':
+                  description: Success
+                '404':
+                  description: Not Found
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentDeleteFunction.Arn}/invocations'
+            options:
+              summary: CORS support
+              consumes:
+                - application/json
+              produces:
+                - application/json
+              responses:
+                '200':
+                  description: Default response for CORS method
+                  headers:
+                    Access-Control-Allow-Headers:
+                      type: string
+                    Access-Control-Allow-Methods:
+                      type: string
+                    Access-Control-Allow-Origin:
+                      type: string
+              x-amazon-apigateway-integration:
+                type: mock
+                requestTemplates:
+                  application/json: '{"statusCode": 200}'
+                responses:
+                  default:
+                    statusCode: 200
+                    responseParameters:
+                      method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+                      method.response.header.Access-Control-Allow-Methods: "'DELETE,OPTIONS'"
+                      method.response.header.Access-Control-Allow-Origin: "'*'"
+          /documents/{document_id}/status:
+            get:
+              summary: Get document status
+              produces:
+                - application/json
+              parameters:
+                - name: document_id
+                  in: path
+                  required: true
+                  schema:
+                    type: string
+              responses:
+                '200':
+                  description: Success
+                '404':
+                  description: Not Found
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentStatusFunction.Arn}/invocations'
+          /stats:
+            get:
+              summary: Get system statistics
+              produces:
+                - application/json
+              responses:
+                '200':
+                  description: Success
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DashboardFunction.Arn}/invocations'
+          /queries/recent:
+            get:
+              summary: Get recent queries
+              produces:
+                - application/json
+              responses:
+                '200':
+                  description: Success
+                '500':
+                  description: Internal Server Error
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub 'arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DashboardFunction.Arn}/invocations'
+
+  # Lambda Functions
+  DocumentUploadFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/upload/
+      Handler: bootstrap
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref DocumentBucket
+      Events:
+        UploadApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /documents/upload
+            Method: POST
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DocumentTable
+        - CloudWatchLogsFullAccess
+    Metadata:
+      BuildMethod: makefile
+
+  DocumentProcessingFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/process/
+      Handler: bootstrap
+      Timeout: 300
+      MemorySize: 1024
+      Environment:
+        Variables:
+          DYNAMODB_TABLE_NAME: !Ref DocumentTable
+      Events:
+        ProcessApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /process
+            Method: POST
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DocumentTable
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: 
+                - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1'
+                - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+            - Effect: Allow
+              Action:
+                - es:ESHttpPost
+                - es:ESHttpPut
+                - es:ESHttpHead
+              Resource: !Sub '${VectorSearchCluster.Arn}/*'
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+    Metadata:
+      BuildMethod: makefile
+
+  QueryFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/query/
+      Handler: bootstrap
+      Timeout: 60
+      MemorySize: 512
+      Events:
+        QueryApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /query
+            Method: POST
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: 
+                - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v1'
+                - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-embed-text-v2:0'
+                - !Sub 'arn:aws:bedrock:${AWS::Region}::foundation-model/amazon.titan-text-express-v1'
+            - Effect: Allow
+              Action:
+                - es:ESHttpPost
+                - es:ESHttpGet
+              Resource: !Sub '${VectorSearchCluster.Arn}/*'
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+    Metadata:
+      BuildMethod: makefile
+
+  DashboardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/dashboard/
+      Handler: bootstrap
+      Timeout: 10
+      MemorySize: 256
+      Runtime: provided.al2023
+      Architectures:
+        - x86_64
+      Events:
+        StatsApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /stats
+            Method: GET
+        QueriesApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /queries/recent
+            Method: GET
+        DocumentsApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /documents
+            Method: GET
+      Environment:
+        Variables:
+          DOCUMENT_BUCKET: !Ref DocumentBucket
+          OPENSEARCH_ENDPOINT: !GetAtt VectorSearchCluster.DomainEndpoint
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Ref DocumentBucket
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - es:*
+              Resource: !Sub '${VectorSearchCluster.Arn}/*'
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+    Metadata:
+      BuildMethod: makefile
+
+  DocumentStatusFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/status/
+      Handler: bootstrap
+      Events:
+        StatusApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /documents/{document_id}/status
+            Method: GET
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - es:ESHttpGet
+              Resource: !Sub '${VectorSearchCluster.Arn}/*'
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: '*'
+    Metadata:
+      BuildMethod: makefile
+
+  DocumentDeleteFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: cmd/delete/
+      Handler: bootstrap
+      Events:
+        DeleteApi:
+          Type: Api
+          Properties:
+            RestApiId: !Ref RagApi
+            Path: /documents/{document_id}
+            Method: DELETE
+      Policies:
+        - S3FullAccessPolicy:
+            BucketName: !Ref DocumentBucket
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DocumentTable
+        - CloudWatchLogsFullAccess
+    Metadata:
+      BuildMethod: makefile
+
+  # S3 Bucket
+  DocumentBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub '${AWS::StackName}-documents-${Environment}'
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+
+  # DynamoDB Table for document metadata
+  DocumentTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-documents-${Environment}'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: document_id
+          AttributeType: S
+        - AttributeName: upload_timestamp
+          AttributeType: N
+      KeySchema:
+        - AttributeName: document_id
+          KeyType: HASH
+      GlobalSecondaryIndexes:
+        - IndexName: UploadTimeIndex
+          KeySchema:
+            - AttributeName: upload_timestamp
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+      StreamSpecification:
+        StreamViewType: NEW_AND_OLD_IMAGES
+
+
+
+  # OpenSearch Service
+  VectorSearchCluster:
+    Type: AWS::OpenSearchService::Domain
+    Properties:
+      DomainName: !Sub 'rag-${Environment}-search'
+      EngineVersion: 'OpenSearch_2.3'
+      ClusterConfig:
+        InstanceType: t3.small.search
+        InstanceCount: 1
+        DedicatedMasterEnabled: false
+      EBSOptions:
+        EBSEnabled: true
+        VolumeType: gp3
+        VolumeSize: 10
+      DomainEndpointOptions:
+        EnforceHTTPS: true
+      EncryptionAtRestOptions:
+        Enabled: true
+      NodeToNodeEncryptionOptions:
+        Enabled: true
+      AccessPolicies:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'es:*'
+            Resource: !Sub 'arn:aws:es:${AWS::Region}:${AWS::AccountId}:domain/${AWS::StackName}-vector-search-${Environment}/*'
+
+  # CloudWatch Log Groups
+  DocumentUploadLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DocumentUploadFunction}'
+      RetentionInDays: 14
+
+  DocumentProcessingLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DocumentProcessingFunction}'
+      RetentionInDays: 14
+
+  QueryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${QueryFunction}'
+      RetentionInDays: 14
+
+  DashboardLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DashboardFunction}'
+      RetentionInDays: 14
+
+  DashboardFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt DashboardFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RagApi}/*/*'
+
+  DocumentUploadFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt DocumentUploadFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RagApi}/*/*'
+
+  DocumentStatusLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DocumentStatusFunction}'
+      RetentionInDays: 14
+
+  DocumentDeleteLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub '/aws/lambda/${DocumentDeleteFunction}'
+      RetentionInDays: 14
+
+  DocumentDeleteFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt DocumentDeleteFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RagApi}/*/*'
+
+  DocumentProcessingFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt DocumentProcessingFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RagApi}/*/*'
+
+  QueryFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt QueryFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RagApi}/*/*'
+
+  DocumentStatusFunctionApiPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt DocumentStatusFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RagApi}/*/*'
+
+# Conditions:
+#   IsProd: !Equals [!Ref Environment, prod]  # Not used after unifying instance types
+
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${RagApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiEndpoint'
+  
+  DocumentBucketName:
+    Description: S3 bucket name for documents
+    Value: !Ref DocumentBucket
+    Export:
+      Name: !Sub '${AWS::StackName}-DocumentBucket'
+  
+  OpenSearchEndpoint:
+    Description: OpenSearch cluster endpoint
+    Value: !GetAtt VectorSearchCluster.DomainEndpoint
+    Export:
+      Name: !Sub '${AWS::StackName}-OpenSearchEndpoint'

@@ -1,0 +1,81 @@
+# Go binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Go modules
+vendor/
+
+# AWS SAM
+.aws-sam/
+samconfig.toml
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment files
+.env
+.env.local
+env.json
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/build/
+frontend/.env
+frontend/.env.local
+frontend/*.log
+
+# Test files and responses
+*_response*.json
+*_test_response*.json
+bedrock_test_response.json
+response.json
+
+# Temporary files
+*.tmp
+*.log
+*.pid
+._*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Documentation planning files
+plan*.md
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+
+# Coverage reports
+coverage/
+*.lcov
+.nyc_output/
+
+# Build artifacts
+build/
+dist/
+target/
+
+# Claude-specific files
+.claude/
+
+# Kiro files
+.kiro/

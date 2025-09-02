@@ -1,0 +1,18 @@
+{
+  "httpMethod": "POST",
+  "path": "/query",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "body": "{\"query\":\"What is machine learning?\",\"max_results\":5}",
+  "queryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "requestId": "test-request-id",
+    "stage": "dev",
+    "httpMethod": "POST",
+    "path": "/query"
+  },
+  "isBase64Encoded": false
+}

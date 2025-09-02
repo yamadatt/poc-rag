@@ -1,0 +1,18 @@
+{
+  "httpMethod": "POST",
+  "path": "/documents",
+  "headers": {
+    "Content-Type": "multipart/form-data"
+  },
+  "body": "test document content",
+  "queryStringParameters": null,
+  "pathParameters": null,
+  "stageVariables": null,
+  "requestContext": {
+    "requestId": "test-request-id",
+    "stage": "dev",
+    "httpMethod": "POST",
+    "path": "/documents"
+  },
+  "isBase64Encoded": false
+}
