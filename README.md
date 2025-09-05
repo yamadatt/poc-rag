@@ -1,15 +1,20 @@
 # AWS サーバーレス RAG システム
 
-AWS のサーバーレス技術を活用した本番環境対応の RAG（Retrieval-Augmented Generation）システム。モダンな React フロントエンドと包括的なテストを備えています。
+AWS のサーバーレス技術を活用した RAG（Retrieval-Augmented Generation）システム。ドキュメントをベクトル化して意味的な検索を可能にし、Amazon Bedrock (Claude 3) を使用して回答を生成します。
+
+⚠️ **注意**: 現在、検索精度の改善作業を計画中です。詳細は [plan.md](./plan.md) を参照してください。
 
 ## 🚀 主な機能
 
-- **ドキュメント処理**: PDF、Word（.docx）、PowerPoint（.pptx）、テキストファイルをサポート
-- **ベクトル検索**: Amazon OpenSearch Service による意味的類似性検索
-- **LLM 統合**: Amazon Bedrock（Claude 3）を使用した回答生成
+- **ドキュメント処理**: 
+  - ✅ 対応済み: テキストファイル（.txt）、Markdown（.md）
+  - ⚠️ 実装済みだが無効化中: PDF、Word（.docx）、PowerPoint（.pptx）
+  - ❌ 未実装: Excel（.xlsx）、旧Word（.doc）、旧PowerPoint（.ppt）
+- **ベクトル検索**: Amazon OpenSearch Service による KNN 検索（改善予定）
+- **LLM 統合**: Amazon Bedrock（Claude 3 Sonnet）を使用した回答生成
 - **サーバーレスアーキテクチャ**: AWS Lambda、API Gateway、S3 で構築
 - **モダンなフロントエンド**: React + TypeScript + Tailwind CSS
-- **パフォーマンス最適化**: 並行処理とリトライ機構
+- **埋め込み生成**: Amazon Titan Embeddings V1 を使用（1536次元）
 - **包括的なテスト**: ユニット、統合、E2E テストを完備
 - **本番環境対応**: エラーハンドリング、ロギング、モニタリング機能
 
@@ -55,8 +60,8 @@ poc-rag/
 - Bedrock アクセスが有効な AWS アカウント
 
 ### 必要な AWS サービスアクセス
-- Amazon Bedrock（Claude 3 Sonnet、Titan Embeddings）
-- Amazon OpenSearch Service
+- Amazon Bedrock（Claude 3 Sonnet、Titan Embeddings V1）
+- Amazon OpenSearch Service（KNNプラグイン有効）
 - AWS Lambda
 - Amazon API Gateway
 - Amazon S3
@@ -67,34 +72,50 @@ poc-rag/
 
 ```
 ┌─────────────┐    ┌──────────────┐    ┌─────────────────┐
-│  クライアント  │───▶│ API Gateway  │───▶│ Upload Lambda   │
-└─────────────┘    └──────────────┘    └─────────────────┘
-                            │                    │
-                            │                    ▼
-                            │           ┌─────────────────┐
-                            │           │       S3        │
-                            │           └─────────────────┘
-                            │                    │
-                            │                    ▼
-                            │           ┌─────────────────┐
-                            │           │ Process Lambda  │
-                            │           └─────────────────┘
-                            │                    │
-                            │                    ▼
-                            │           ┌─────────────────┐
-                            │           │   Bedrock API   │
-                            │           └─────────────────┘
-                            │                    │
-                            │                    ▼
-                            │           ┌─────────────────┐
-                            └──────────▶│ Query Lambda    │
+│   React     │───▶│ API Gateway  │───▶│ Upload Lambda   │
+│  Frontend   │    └──────────────┘    └─────────────────┘
+└─────────────┘            │                    │
+                           │                    ▼
+                           │           ┌─────────────────┐
+                           │           │   S3 Bucket     │
+                           │           │  (Documents)    │
+                           │           └─────────────────┘
+                           │                    │
+                           │                    ▼
+                           │           ┌─────────────────┐
+                           │           │ Process Lambda  │
+                           │           └─────────────────┘
+                           │                    │
+                           │                    ▼
+                           │           ┌─────────────────┐
+                           │           │ Bedrock (Titan) │
+                           │           │   Embeddings    │
+                           │           └─────────────────┘
+                           │                    │
+                           │                    ▼
+                           │           ┌─────────────────┐
+                           └──────────▶│ Query Lambda    │
                                        └─────────────────┘
                                                 │
-                                                ▼
-                                       ┌─────────────────┐
-                                       │   OpenSearch    │
-                                       └─────────────────┘
+                                        ┌───────┴────────┐
+                                        ▼                ▼
+                               ┌─────────────┐  ┌─────────────┐
+                               │ OpenSearch  │  │   Bedrock   │
+                               │   (KNN)     │  │  (Claude 3) │
+                               └─────────────┘  └─────────────┘
 ```
+
+## 📋 現在の制限事項
+
+### ファイル形式の制限
+現在、システムは**テキストファイル（.txt）とMarkdownファイル（.md）のみ**を処理できます。PDF、Word、PowerPointの処理コードは実装されていますが、安全性の観点から無効化されています。
+
+### 検索精度の課題
+- **単純なチャンキング**: 文ベースの分割により、コンテキストが失われやすい
+- **設定の不整合**: OpenSearchとLambda間で埋め込み次元が異なる（1536 vs 1024）
+- **基本的なKNN検索のみ**: ハイブリッド検索や再ランキングが未実装
+
+詳細な改善計画は [plan.md](./plan.md) を参照してください。
 
 ## 🚀 クイックスタート
 
@@ -167,17 +188,27 @@ go test ./tests/integration_test.go -v
 
 ### ドキュメントのアップロード
 ```bash
+# テキストファイルのアップロード
 curl -X POST \
   https://your-api-endpoint.amazonaws.com/dev/documents \
   -H 'Content-Type: multipart/form-data' \
-  -F 'file=@document.pdf'
+  -F 'file=@document.txt'
+
+# Markdownファイルのアップロード  
+curl -X POST \
+  https://your-api-endpoint.amazonaws.com/dev/documents \
+  -H 'Content-Type: multipart/form-data' \
+  -F 'file=@document.md'
 ```
+
+⚠️ **注意**: 現在は .txt と .md ファイルのみ対応しています。
 
 レスポンス：
 ```json
 {
   "document_id": "doc-1234567890",
-  "message": "Document uploaded successfully"
+  "message": "Document uploaded successfully",
+  "file_type": "text/plain"
 }
 ```
 
@@ -190,12 +221,13 @@ curl https://your-api-endpoint.amazonaws.com/dev/documents/doc-1234567890/status
 ```json
 {
   "document_id": "doc-1234567890",
-  "filename": "document.pdf",
+  "filename": "document.txt",
   "status": "completed",
   "uploaded_at": "2023-12-01T10:00:00Z",
   "processed_at": "2023-12-01T10:05:00Z",
   "total_chunks": 5,
   "chunks_with_embeddings": 5,
+  "embedding_dimension": 1536,
   "last_error": ""
 }
 ```
@@ -222,7 +254,9 @@ curl -X POST \
       "content": "回答を裏付ける関連テキストチャンク...",
       "score": 0.95
     }
-  ]
+  ],
+  "search_method": "knn_vector",
+  "model_used": "anthropic.claude-3-sonnet-20240229-v1:0"
 }
 ```
 
@@ -274,13 +308,30 @@ Parameters:
     Type: String
     Default: dev
     AllowedValues: [dev, staging, prod]
+  
+  OpenSearchInstanceType:
+    Type: String
+    Default: t3.small.search  # 開発環境
+    # prod では m6g.medium.search を推奨
 ```
 
-### パフォーマンス設定
-- **Lambda メモリ**: SAM テンプレートで関数ごとに設定可能
-- **OpenSearch インスタンス**: 環境に応じてスケール（dev は t3.small、prod は m6g.medium）
-- **並行処理**: 最大 5 つの並行埋め込み生成
-- **リトライ設定**: 指数バックオフで 3 回リトライ
+### 技術仕様
+- **Lambda メモリ**: 
+  - Upload/Query: 512MB
+  - Process: 1024MB（埋め込み生成のため）
+- **OpenSearch インスタンス**: 
+  - 開発: t3.small.search
+  - 本番: m6g.medium.search 推奨
+- **埋め込みモデル**: 
+  - Amazon Titan Embeddings V1（1536次元）
+  - チャンクサイズ: 1000文字（改善予定）
+- **LLMモデル**: 
+  - Claude 3 Sonnet (anthropic.claude-3-sonnet-20240229-v1:0)
+  - 最大トークン: 4096
+- **ベクトル検索設定**:
+  - アルゴリズム: HNSW (Hierarchical Navigable Small World)
+  - 距離関数: コサイン類似度
+  - k値: デフォルト5（最大20）
 
 ## 📊 モニタリングとロギング
 
@@ -298,10 +349,36 @@ Parameters:
 
 ## 🔒 セキュリティ
 
-- **IAM ロール**: 最小権限の原則
-- **API キー**: API Gateway での認証
-- **データ暗号化**: 保存時と転送時の暗号化
-- **VPC 分離**: OpenSearch は VPC 内に配置
+- **IAM ロール**: 最小権限の原則に基づく設定
+- **API Gateway**: CORS設定済み
+- **データ暗号化**: S3での保存時暗号化
+- **VPC設定**: OpenSearchはVPC内に配置可能
+
+## 🐛 既知の問題
+
+1. **ファイル形式の制限**: PDF、Word、PowerPointのコードは存在するが無効化中
+2. **埋め込み次元の不整合**: サービス間で1536と1024が混在
+3. **検索精度**: 基本的なKNN検索のみで精度が低い
+4. **チャンキング**: 単純な文字数分割でコンテキストが失われる
+
+これらの問題の詳細と改善計画は [plan.md](./plan.md) を参照してください。
+
+## 🚀 今後の改善予定
+
+### 短期（1-2週間）
+- [ ] OpenSearch設定の統一（埋め込み次元の修正）
+- [ ] PDF、Word、PowerPointのサポート有効化
+- [ ] 基本的なチャンキング改善
+
+### 中期（1ヶ月）
+- [ ] ハイブリッド検索（ベクトル + キーワード）の実装
+- [ ] チャンクオーバーラップの追加
+- [ ] クエリ拡張機能
+
+### 長期（2-3ヶ月）
+- [ ] 再ランキング機能の実装
+- [ ] セマンティックチャンキング
+- [ ] A/Bテストフレームワーク
 
 ## 🤝 コントリビューション
 
@@ -314,6 +391,12 @@ Parameters:
 ## 👥 作者
 
 - [@your-github-username](https://github.com/your-github-username)
+
+## 📚 関連ドキュメント
+
+- [改善計画書](./plan.md) - 検索精度向上のための詳細な改善計画
+- [AWS Bedrock Documentation](https://docs.aws.amazon.com/bedrock/)
+- [OpenSearch k-NN Documentation](https://opensearch.org/docs/latest/search-plugins/knn/)
 
 ## 🙏 謝辞
 

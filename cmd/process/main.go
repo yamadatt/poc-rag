@@ -534,10 +534,10 @@ func ensureVectorIndexExists(sess *session.Session, endpoint string) error {
 				},
 				"vector": map[string]interface{}{
 					"type":      "knn_vector",
-					"dimension": 1024,
+					"dimension": 1536, // Titan embedding dimension - unified with services
 					"method": map[string]interface{}{
 						"name":       "hnsw",
-						"space_type": "l2",
+						"space_type": "cosinesimilarity", // Unified with services
 						"engine":     "nmslib",
 						"parameters": map[string]interface{}{
 							"ef_construction": 512,

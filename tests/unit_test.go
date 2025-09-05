@@ -288,7 +288,7 @@ func TestQueryRequestValidation(t *testing.T) {
 }
 
 func TestDocumentModelLifecycle(t *testing.T) {
-	document := models.NewDocument("test.pdf", "application/pdf", "documents/test.pdf")
+	document := models.NewDocument("test.pdf", "application/pdf", "documents/test.pdf", 1024)
 
 	// Initial state
 	if document.Status != models.StatusUploaded {
@@ -312,7 +312,7 @@ func TestDocumentModelLifecycle(t *testing.T) {
 	}
 
 	// Test failure path
-	document2 := models.NewDocument("test2.pdf", "application/pdf", "documents/test2.pdf")
+	document2 := models.NewDocument("test2.pdf", "application/pdf", "documents/test2.pdf", 2048)
 	document2.MarkAsFailed("Test error")
 
 	if document2.Status != models.StatusFailed {

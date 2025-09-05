@@ -1,7 +1,6 @@
 package services
 
 import (
-	"fmt"
 	"strings"
 
 	"aws-serverless-rag/internal/models"
@@ -26,12 +25,8 @@ func (te *TextExtractor) ExtractText(content []byte, contentType, fileName strin
 		return string(content), nil
 	case "application/pdf":
 		return te.extractFromPDF(content)
-	case "application/msword":
-		return te.extractFromDOC(content)
 	case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
 		return te.extractFromDOCX(content)
-	case "application/vnd.ms-powerpoint":
-		return te.extractFromPPT(content)
 	case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
 		return te.extractFromPPTX(content)
 	default:
@@ -44,22 +39,14 @@ func (te *TextExtractor) extractFromPDF(content []byte) (string, error) {
 	return te.officeExtractor.ExtractFromPDF(content)
 }
 
-// extractFromDOC extracts text from legacy Word documents
-func (te *TextExtractor) extractFromDOC(content []byte) (string, error) {
-	// TODO: Implement DOC text extraction
-	return fmt.Sprintf("DOC_CONTENT_PLACEHOLDER_%d_BYTES", len(content)), fmt.Errorf("DOC text extraction not implemented in this demo")
-}
+
 
 // extractFromDOCX extracts text from Word documents
 func (te *TextExtractor) extractFromDOCX(content []byte) (string, error) {
 	return te.officeExtractor.ExtractFromDOCX(content)
 }
 
-// extractFromPPT extracts text from legacy PowerPoint presentations
-func (te *TextExtractor) extractFromPPT(content []byte) (string, error) {
-	// TODO: Implement PPT text extraction
-	return fmt.Sprintf("PPT_CONTENT_PLACEHOLDER_%d_BYTES", len(content)), fmt.Errorf("PPT text extraction not implemented in this demo")
-}
+
 
 // extractFromPPTX extracts text from PowerPoint presentations
 func (te *TextExtractor) extractFromPPTX(content []byte) (string, error) {
